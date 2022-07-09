@@ -1,0 +1,123 @@
+
+{% extends 'base/base.html' %}
+
+
+{% block content %}
+      <div class="row">
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+            <h3 {% if message.tags %} class="{{ message.tags }} text-warning"{% endif %}>{{ message }}</h3>
+            {% endfor %}
+        </div>
+      {% endif %}
+        <div class="col-12">
+          <div class="card my-4">
+            <div class="card-header p-0 position-relative mt-n4 mx-3 z-index-2">
+              <div class="bg-gradient-primary shadow-primary border-radius-lg pt-4 pb-3">
+                <h6 class="text-white text-capitalize ps-3" style="display:inline-block;">Generate Bill</h6>
+              </div>
+            </div>
+            <div class="card-body px-0 pb-2">
+                <div class="row">
+                    <div class="col-sm-12">
+                        <div class="table-responsive p-0 m-2">
+
+                        <form class="form-inline m-2 p-3 text-center border border-danger" method="POST" novalidate>
+                            {{form.non_field_errors}}
+                            {% csrf_token %}
+                            {% for field in form %}
+                            {{field.errors}}
+                            {% endfor %}
+                                        <div class="row">
+                                            
+                                        <div class="col-sm-2 text-left">
+                                            <label for="{{form.bill_no.auto_id}}">{{form.bill_no.label}}</label>
+                                            
+                                        </div>  
+                                        <div class="col-sm-2 text-right">
+                                            {{form.bill_no}}
+                                        </div>                           
+                                        <div class="col-sm-2 offset-sm-3">
+                                            <label for="{{form.date_billed.auto_id}}">{{form.date_billed.label}}</label>
+                                        
+                                        </div> 
+                                        <div class="col-sm-2">
+                                            {{form.date_billed}}
+                                        </div>                        
+                                        <div class="col-sm-2 mt-5 offset-sm-3">
+                                            <label for="{{form.customer_detail.auto_id}}">{{form.customer_detail.label}}</label>
+                                            
+                                        </div>
+                                        <div class="col-sm-4 mt-5">
+                                            {{form.customer_detail}}
+                                        </div>
+                                                                    
+                                        <div class="col-sm-2 mt-3 offset-sm-3">
+                                            <label for="{{form.customer_phonenumber.auto_id}}">{{form.customer_phonenumber.label}}</label>
+                                            
+                                        </div> 
+                                        <div class="col-sm-4 mt-3 ">
+                                            {{form.customer_phonenumber}}
+                                        </div>                            
+                                        
+                                    </div>
+                                
+                    
+                                </div>
+                            </div>
+                            
+                            {% if method %}
+                            <div class="col-sm-8 offset-sm-1">
+                            <table class="table table-bordered">
+
+                                {% if found %}
+                                <tr>
+                                    <th>SN</th>
+                                    <th>Item Name</th>
+                                    <th>Amount</th>
+                                    <th>Selling Price</th>
+                                    <th>Total</th>
+                                </tr>
+                                {% for product_detail in products %}
+                                <tr>
+                                    <td>{{forloop.counter}}</td>
+                                        <input type="hidden" name="id_{{forloop.counter}}" value="{{product_detail.id}}">
+                                        <input type="hidden" name="total_items" value="{{forloop.counter}}"">
+                                    {% comment %} <td>{{product_detail.id}}</td> {% endcomment %}
+                                    <td>{{product_detail.product_name}} <small>({{product_detail.product_amount}})</small> </td>
+                                    <td> <input type="number" name="amount_{{forloop.counter}}" > </td>
+                                    <td><input type="number" name="selling_price_{{forloop.counter}}" id=""></td>
+                                    <td></td>
+                                </tr>
+                                {% endfor %}
+
+                                {% else %}
+                                <thead><h1>{{message}}</h1></thead>
+                                {% endif %}
+                            
+
+                            </table>
+
+                            </div>
+                            <div class="container">
+                            <div class="row">
+                                <div class="col-sm-4 offset-sm-4">
+                                    <input type="submit" value="Generate" class="btn btn-primary">
+                                
+                                </div>
+
+                            </div>
+                            </div>
+                        </form>
+                    {% endif %}
+                </div>
+            
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="row">
+      </div>
+    
+{% endblock content %}

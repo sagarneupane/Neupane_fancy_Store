@@ -1,0 +1,626 @@
+from django.shortcuts import render, redirect, Http404
+from django.views.generic import CreateView, DeleteView, UpdateView
+from django.views.generic import ListView, DetailView, TemplateView, FormView
+from .multiformviewcreate import MultipleFormsView
+from .models import *
+from .forms import *
+from django.urls import reverse_lazy
+from django.contrib.messages.views import SuccessMessageMixin
+from django.utils.decorators import method_decorator
+from django.contrib.auth.decorators import login_required
+from django import forms
+from django.contrib import messages
+from django.core.paginator import Paginator
+import json
+from .helpers import week_day_sales, find_item_n_amount, seven_back_days_generator
+import NFSDATA.helpers as hp
+import NFSDATA.yearmonth as ym
+
+
+@method_decorator(login_required(login_url="signin"), name="dispatch")
+class DashboardView(TemplateView):
+    from datetime import datetime, timedelta
+    from datetime import date
+    template_name = "pages/dashboard.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        seven_days, labels = seven_back_days_generator()
+        num_prod_today = Products.objects.filter(date_added=seven_days[0]).count()
+        num_prod_yesterday = Products.objects.filter(date_added=seven_days[1]).count()
+        if num_prod_yesterday + num_prod_today == 0:
+            percentage_change_in_number_added_prod = 0
+        else:
+            percentage_change_in_number_added_prod = round(
+                (num_prod_today - num_prod_yesterday) / (num_prod_today + num_prod_yesterday) * 100)
+
+
+        most_sold_item, most_sold_item_amount = find_item_n_amount(SoldProducts, seven_days[0])
+
+        total_sales_data = []
+        total_profit_data = []
+
+        for i in range(7):
+            total_sold_on_day, total_profit_on_day = week_day_sales(SoldProducts, seven_days[i])
+            total_sales_data.append(total_sold_on_day)
+            total_profit_data.append(total_profit_on_day)
+
+        # Converting Python Data into JSON DATA so that JavaScript Can Read it
+        data_data = json.dumps(total_sales_data)
+        data_profit = json.dumps(total_profit_data)
+        datalabel = json.dumps(labels)
+
+        if total_sales_data[0] + total_sales_data[1] == 0:
+            total_sales_change = 0
+        else:
+            total_sales_change = round(
+                ((total_sales_data[0] - total_sales_data[1]) / (total_sales_data[0] + total_sales_data[1])) * 100)
+
+        if total_profit_data[0] + total_profit_data[1] == 0:
+            total_profit_change = 0
+        else:
+            total_profit_change = round(((total_profit_data[0] - total_profit_data[1]) / (
+                        total_profit_data[0] + total_profit_data[1])) * 100)
+
+        loss = False
+        if total_profit_change < 0:
+            loss = True
+
+        twelve_months, month_sort = ym.months_generator()
+        monthly_sold_data, labelmonths = ym.get_total_sold_monthly(SoldProducts, twelve_months, month_sort)
+
+        monthly_sold_data = json.dumps(monthly_sold_data)
+        labelmonths = json.dumps(labelmonths)
+
+        context["monthly_sold_data"] = monthly_sold_data
+        context["labelmonths"] = labelmonths
+        context["loss"] = loss
+        context["data"] = data_data
+        context["labels"] = datalabel
+        context["profit"] = data_profit
+        context["date_today"] = seven_days[0]
+        context["date_before_seven"] = seven_days[6]
+        context["products_added_today"] = num_prod_today
+        context["percentage_change"] = percentage_change_in_number_added_prod
+        context["most_sold_item"] = most_sold_item
+        context["most_sold_item_amount"] = most_sold_item_amount
+        context["total_sales_change"] = total_sales_change
+        context["total_profit_change"] = total_profit_change
+        context["total_sold"] = '{:,.2f}'.format(total_sales_data[0])
+        context["total_profit"] = '{:,.2f}'.format(total_profit_data[0])
+        context["total_item_sold"] = hp.total_item(SoldProducts, "product_amount_sold", seven_days[0])
+
+        context["total_remainig_item"] = hp.total_item(Products, "product_amount")
+        context["total_remaining_cost"] = '{:,.2f}'.format(hp.total_rem_cost(Products))
+
+        context["total_item_sold_till_now"] = hp.total_item(SoldProducts, "product_amount_sold")
+
+        total_sold_cost, total_profit_earned = hp.week_day_sales(SoldProducts)
+        context["total_sold_cost_till_now"], context["total_profit_earned_till_now"] = 'Rs {:,.2f}'.format(
+            total_sold_cost), 'Rs {:,.2f}'.format(total_profit_earned)
+
+        # MOST SOLD ITEMS
+        item, amount = hp.find_item_n_amount(SoldProducts)
+        if item is not None:
+            context["most_sold_item_till_now"], context["most_sold_item_amount_till_now"] = item, amount
+            
+            context["most_sold_item_cost"] = "Rs {:,.2f}".format(item.product_cost_price)
+        else:
+            context["most_sold_item_till_now"], context["most_sold_item_amount_till_now"] = None, None
+            
+            context["most_sold_item_cost"] = None
+
+        # MOST PROFIT Giving ITEMS
+        most_profit_given_item, profit_given_by_item = hp.most_profit_given()
+        
+        if most_profit_given_item is not None:
+            context["most_profit_given_item"], context[
+                "profit_given_by_item"] = most_profit_given_item, "Rs {:,.2f}".format(profit_given_by_item)
+
+        # Expensive and Costly Item
+        expensive_item, costly_item = hp.most_expensive_costly()
+        context["most_expensive_item"], context["most_costly_item"] = expensive_item, costly_item
+        context["most_expensive_item_cost"], context["most_costly_item_cost"] = "Rs {:,.2f}".format(
+            expensive_item.product_cost_price), "Rs {:,.2f}".format(costly_item.product_cost_price)
+
+        sagar = hp.find_item_n_amount(SoldProducts, list_return=5)
+
+        context["top_five_items"] = sagar
+        context["date"] = self.datetime.today()
+        context["active_dashboard"], context["bg_dashboard"] = "active", "bg-gradient-primary"
+        context["page_name"] = "Dashboard"
+
+        return context
+
+
+# Create your views here.
+@method_decorator(login_required(login_url="signin"), name="dispatch")
+class CreateCatView(SuccessMessageMixin, CreateView):
+    model = Category
+    template_name = "pages/create_category.html"
+    # fields = "__all__"
+    form_class = CategoryForm
+    success_url = reverse_lazy("show_cat_subcat")
+    success_message = "New Category Has Been Added Successfully"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["active_create_category"], context["bg_create_category"] = "active", "bg-gradient-primary"
+        context["page_name"] = "Create Category"
+        return context
+
+
+@method_decorator(login_required(login_url="signin"), name="dispatch")
+class CreateSubCategoryView(SuccessMessageMixin, CreateView):
+    model = SubCategory
+    template_name = "pages/create_subcategory.html"
+    form_class = SubCategoryForm
+    success_url = reverse_lazy("show_cat_subcat")
+    success_message = "New Sub Category Has Been Added Successfully"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["active_create_subcategory"], context["bg_create_subcategory"] = "active", "bg-gradient-primary"
+        context["page_name"] = "Create SubCategory"
+        return context
+
+
+@method_decorator(login_required(login_url="signin"), name="dispatch")
+class ListCategorySubCategoryView(ListView):
+    model = Category
+    template_name = "pages/tables.html"
+    context_object_name = "category_list"
+
+    def get_context_data(self, **kwargs):
+        context = super(ListCategorySubCategoryView, self).get_context_data(**kwargs)
+        context["subcategory_list"] = SubCategory.objects.order_by("id")
+        context["active_list_category"], context["bg_list_category"] = "active", "bg-gradient-primary"
+        context["page_name"] = "View Category and SubCategory"
+        return context
+
+
+@method_decorator(login_required(login_url="signin"), name="dispatch")
+class UpdateCategoryView(SuccessMessageMixin, UpdateView):
+    model = Category
+    template_name = "pages/create_category.html"
+    # fields = "__all__"
+    form_class = CategoryForm
+    success_url = reverse_lazy("show_cat_subcat")
+    success_message = "New Category Has Been Added Successfully"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["active_update_category"] = "active"
+        context["page_name"] = "Update Category"
+        return context
+
+
+@method_decorator(login_required(login_url="signin"), name="dispatch")
+class UpdateSubCategoryView(SuccessMessageMixin, UpdateView):
+    model = SubCategory
+    template_name = "pages/create_subcategory.html"
+    form_class = SubCategoryForm
+    success_url = reverse_lazy("show_cat_subcat")
+    success_message = "Sub Category Has Been Updated Successfully"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["active_update_subcategory"] = "active"
+        context["page_name"] = "Update SubCategory"
+        return context
+
+
+@method_decorator(login_required(login_url="signin"), name="dispatch")
+class CreateProductView(SuccessMessageMixin, CreateView):
+    model = Products
+    template_name = "pages/create_products.html"
+    form_class = ProductForm
+    success_url = reverse_lazy("show_products")
+    success_message = "New Product Has Been Added Successfully"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["active_create_products"], context["bg_create_products"], context[
+            "page_name"] = "active", "bg-gradient-primary", "Create Products"
+        return context
+
+
+@method_decorator(login_required(login_url="signin"), name="dispatch")
+class UpdateProductView(SuccessMessageMixin, UpdateView):
+    model = Products
+    template_name = "pages/create_products.html"
+    form_class = ProductForm
+    success_url = reverse_lazy("show_products")
+    success_message = "Product Has Been Updated Successfully"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["active_update_product"], context["page_name"] = "active", "update_products"
+        return context
+
+
+@method_decorator(login_required(login_url="signin"), name="dispatch")
+class ListProductView(ListView):
+    model = Products
+    template_name = "pages/show_products.html"
+    # context_object_name = "product_list"
+    ordering = ["-product_amount"]
+    paginate_by = 10
+    paginate_orphans = 4
+
+    def get_context_data(self, **kwargs):
+
+        try:
+            context = super().get_context_data(**kwargs)
+            context["active_list_product"], context["bg_list_product"] = "active", "bg-gradient-primary"
+            context["page_name"] = "View Products"
+            return context
+        except Http404:
+            self.kwargs["page"] = 1
+            context = super().get_context_data(**kwargs)
+            context["active_list_product"], context["bg_list_product"] = "active", "bg-gradient-primary"
+            context["page_name"] = "View Products"
+            return context
+
+
+def list_products_view(request):
+    products = Products.objects.all().order_by("id")
+    template_name = "pages/show_products_from_fun.html"
+    paginator = Paginator(products, 5, orphans=2)
+    page_number = request.GET.get("page")
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, template_name, {"page_obj": page_obj, "active_product_view": "active"})
+
+
+@method_decorator(login_required(login_url="signin"), name="dispatch")
+class DetailProductView(TemplateView):
+    # model = Products
+    template_name = "pages/each_product_detail.html"
+
+    # context_object_name = "product_detail"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context = {"data_exists": False}
+        context["page_name"] = "Product Detail"
+        if Products.objects.filter(id=self.kwargs["pk"]).exists():
+            context["data_exists"] = True
+            context["product_detail"] = Products.objects.get(id=self.kwargs["pk"])
+        else:
+            messages.success(self.request, "Product Not Found")
+        return context
+
+
+def search_products(request, id=0):
+    template_name = "pages/search_products.html"
+    context = {"found": False, "method": True}
+    context["page_name"] = "Search Products"
+    if request.method == "GET":
+        context["method"] = False
+        return render(request, template_name)
+
+    if request.method == "POST":
+        if request.POST.get("searched") == "":
+            context["message"] = "Your Search Was Empty"
+        else:
+            id = int(request.POST.get("searched"))
+            if Products.objects.filter(id=id).exists():
+                product_detail = Products.objects.get(id=id)
+                context["product_detail"] = product_detail
+                context["found"] = True
+            else:
+                context["message"] = "Please Enter Correct ID. The Id You have entered Not been Found! Try Again"
+
+        return render(request, template_name, context)
+    else:
+        return render(request, template_name)
+
+
+@method_decorator(login_required(login_url="signin"), name="dispatch")
+class SoldFormView(SuccessMessageMixin, FormView):
+    template_name = "pages/sold_items.html"
+    form_class = SoldProductsFrom
+    success_url = reverse_lazy("dashboard")
+    success_message = "Successfully  Added Sold Product"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["product"] = Products.objects.get(id=self.kwargs['id'])
+        context["active_create_soldproduct"], context["bg_create_soldproduct"] = "active", "bg-gradient-primary"
+        context["page_name"] = "Sell Products"
+        return context
+
+    def form_valid(self, form):
+        product_obj = Products.objects.get(id=self.kwargs['id'])
+
+        if product_obj.product_amount >= form.cleaned_data["product_amount_sold"]:
+            # product_obj.sold(form.cleaned_data["product_amount_sold"])
+            # product_obj.save()
+            product_sold_obj = SoldProducts(
+                product_sold=product_obj,
+                product_selling_price=form.cleaned_data["product_selling_price"],
+                product_amount_sold=form.cleaned_data["product_amount_sold"],
+                added_date=form.cleaned_data["added_date"],
+            )
+            product_sold_obj.save()
+            message = "हजुरको  ईन्ट्रि हामिलाई प्राप्त भयो । धन्यवाद ! "
+            messages.success(self.request, message)
+            return redirect("search_products", 0)
+        else:
+
+            mydata = form.cleaned_data["product_amount_sold"]
+            # print("Hello World")
+            message = "हामी सङ्ग जम्मा ", product_obj.product_amount, " ओटा सामान छ  र  हजुर ले ", mydata, "ओटा सामान बेचे भनेर पठाउनु भयको छ । कृपया पुनः चेक गरेर पठाउनु होस् । धन्यबाद ! "
+            messages.success(self.request, message)
+            return redirect("sold_form", self.kwargs['id'])
+        return super().form_valid(form)
+
+
+@method_decorator(login_required(login_url="signin"), name="dispatch")
+class SoldUpdateView(SuccessMessageMixin, UpdateView):
+    model = SoldProducts
+    template_name = "pages/sold_items.html"
+    form_class = SoldProductsFrom
+
+    # success_message = "Successfully Updated"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        soldproducts = SoldProducts.objects.get(id=self.kwargs['pk'])
+        context["product"] = Products.objects.get(id=soldproducts.product_sold.id)
+        context["page_name"] = "Update Sold Products"
+        return context
+
+    def form_valid(self, form):
+        soldproducts = SoldProducts.objects.get(id=self.kwargs['pk'])
+        product_obj = Products.objects.get(id=soldproducts.product_sold.id)
+        if product_obj.product_amount >= form.cleaned_data["product_amount_sold"]:
+            return redirect("view_sold_products", 0)
+        else:
+            success_message = "The Products Number Provided is very high in number as compared to those we have"
+            return redirect("sold_products_update", self.kwargs['pk'])
+
+
+@method_decorator(login_required(login_url="signin"), name="dispatch")
+class SoldProductsView(ListView):
+    model = SoldProducts
+    # context_object_name = "products_sold_list"
+    template_name = "pages/sold_products_lists.html"
+    paginate_by = 8
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["products_sold_list"] = SoldProducts.objects.order_by("-created_on")
+        context["active_list_soldproduct"], context["bg_list_soldproduct"] = "active", "bg-gradient-primary"
+        context["page_name"] = "View Sold Products"
+        return context
+
+    def form_valid(self, form):
+        id = self.kwargs["date"]
+
+
+def view_sold_products(request, date=0):
+    template_name = "pages/sold_products_lists.html"
+    context = {"products_sold_list": None,
+               "product_found": True,
+               "is_paginated": False,
+               "grand_total": False,
+               "active_list_soldproducts": "active",
+               "bg_list_soldproducts": "bg-gradient-primary",
+               }
+    context["page_name"] = "View Sold Products"
+    if request.method == "GET":
+        products_sold_list = SoldProducts.objects.all()
+        # context["products_sold_list"] = products_sold_list
+        paginator = Paginator(products_sold_list, 8)
+        page_number = request.GET.get("page")
+        page_obj = paginator.get_page(page_number)
+        context["page_obj"] = page_obj
+        context["is_paginated"] = True
+
+    elif request.method == "POST":
+        date = request.POST.get("date")
+        if SoldProducts.objects.filter(added_date=date).exists():
+            filtered_sold_objects = SoldProducts.objects.filter(added_date=date).order_by("-created_on")
+            context["page_obj"] = filtered_sold_objects
+            context["grand_total"] = True
+            total_sold_on_day = 0.0
+            total_profit_on_day = 0.0
+            for item in filtered_sold_objects:
+                total_sold_on_day = total_sold_on_day + item.total_on_each_item()
+                total_profit_on_day = total_profit_on_day + item.total_profit_or_loss()
+            context["total_sold"] = total_sold_on_day
+            context["profit"] = False
+            if total_profit_on_day > 0:
+                context["profit"] = True
+            context["total_profit"] = total_profit_on_day
+
+        else:
+            context["product_found"] = False
+            messages.success(request, f"No Any Items Were Sold on {date} please try again")
+    return render(request, template_name, context)
+
+
+
+
+@method_decorator(login_required(login_url="signin"),name="dispatch")
+class SearchForGenerateView(SuccessMessageMixin,FormView):
+    template_name = 'pages/create_bills.html'
+    form_class = SearchForm
+    success_url = reverse_lazy("create_bill")
+    items_searched = []
+    products = None
+    method = False
+    found = False
+    success_message = ""
+    
+    def form_valid(self,form):
+        
+        self.items_searched.append(form.cleaned_data['search_data'])
+        method = True
+        return super().form_valid(form)
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # print(self.items_searched)
+        if Products.objects.filter(id__in=self.items_searched).exists():
+            self.found = True
+            self.method = True
+        else:
+            context["message"] = "No Such Items Present"
+        # print(self.found)
+        # print(self.method)
+        context["found"] = self.found
+        context["method"] = self.method
+        self.products = Products.objects.filter(id__in=self.items_searched)
+        # print(self.products)
+        context["products"] = self.products
+        return context
+    
+
+    
+class PopItemsView(SearchForGenerateView):
+    
+    def dispatch(self, request, *args, **kwargs):
+        self.items_searched.pop()
+        super().dispatch(request, *args, **kwargs)
+        return redirect("create_bill")
+    
+
+class PopSelectedItem(SearchForGenerateView):
+    
+    # success_url = reverse_lazy("create_bill")
+    
+    def dispatch(self,request,*args,**kwargs):
+        print(kwargs['id'])
+        self.items_searched.remove(kwargs['id'])
+        super().dispatch(request,*args,**kwargs)
+        return redirect("create_bill")
+
+
+class PopAllItems(SearchForGenerateView):
+    # template_name = "pages/billgenerator.html"
+    # form_class = SearchForm
+    # success_url = reverse_lazy("generate_bill")
+    
+    def dispatch(self, request, *args, **kwargs):
+        self.items_searched.clear()
+        super().dispatch(request, *args, **kwargs)
+        return redirect("create_bill")
+
+
+class GenerateBillView(SearchForGenerateView):
+    template_name = "pages/billgenerator.html"
+    form_class = GenerateBillForm
+    success_url = reverse_lazy("generate_bill")
+    success_message = "Form Submission Success"
+    Products = None
+    # context = None
+    
+    def dispatch(self, request, *args, **kwargs):
+        
+        # # print(self.items_searched)
+        # print("I am called")
+        # self.Products = self.products
+        
+        # print("I am Products from Generate Bill",self.Products)
+        # print("I am products form Create Bill",self.products)
+        if len(self.items_searched) == 0:
+            return redirect("create_bill")
+        else: 
+            if not Products.objects.filter(id__in = self.items_searched).exists():
+                return redirect("create_bill")
+            # self.items_searched.clear()
+            return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        print(self.products,"I am from context data")
+        context["products"] = self.products
+        
+        return context
+    
+    
+    
+    def post(self, request, *args, **kwargs):
+        form = self.form_class(request.POST)
+        if form.is_valid():
+            
+            items_in_bill = self.request.POST.get("total_items")
+            print(items_in_bill)
+            
+            data_to_store = {}
+            
+            for i in range(1,int(items_in_bill)+1):
+                ids = f'id_{i}'
+                amount = f'amount_{i}'
+                selling_price = f'selling_price_{i}'
+            
+                id = self.request.POST.get(ids)
+                amount = self.request.POST.get(amount)
+                selling_price = self.request.POST.get(selling_price)
+                data_to_store[i] = {"item":Products.objects.get(id=id),"amount_sold":amount,"selling_price":selling_price}
+            
+            print(data_to_store)
+            
+            ids_saved = []
+            
+            
+            
+
+            customer_details = self.request.POST.get("customer_detail")
+            bill_no = self.request.POST.get("bill_no")
+            customer_phone = self.request.POST.get("customer_phonenumber")
+            date_bill_generated = self.request.POST.get("date_billed")
+            
+            for i in range(1,len(data_to_store)+1):
+
+                sold_products = SoldProducts(
+                    product_sold=data_to_store[i]["item"],
+                    product_selling_price=data_to_store[i]["selling_price"],
+                    product_amount_sold=data_to_store[i]["amount_sold"],
+                    added_date=date_bill_generated)
+                sold_products.save()
+                
+                ids_saved.append(sold_products.pk)
+            
+            products_sold_to_get = {}
+            
+            for i in ids_saved:
+                products_sold_to_get[i] = SoldProducts.objects.get(id=i)
+            
+            create_bill = Bills.objects.create(
+                bill_no = bill_no,
+                billing_date = date_bill_generated,
+                customer_detail = customer_details,
+                customer_contact = customer_phone
+            )
+            for i in range(len(products_sold_to_get)):
+                create_bill.items.add(products_sold_to_get[ids_saved[i]])
+            create_bill.save()
+            # print(ids_saved)
+            
+            # for i in range(len(data_to_store)):
+            #     sold_products = SoldProducts.objects.create()
+            
+            
+            messages.success(self.request,"Data Successfully Inserted")
+            return redirect('create_bill')
+        else:
+            messages.success(self.request,"Please Fix out the errors")
+            return redirect('generate_bill')
+        # return render(self.request,self.template_name,{"form":self.form_class,"products":self.context})
+        
+
+
+
+class BillingView(ListView):
+    
+    model = Bills
+    template_name = "pages/billing.html"
+    context_object_name = "bill_list"
