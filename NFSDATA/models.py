@@ -122,3 +122,4 @@ class Bills(models.Model):
 
     def __str__(self):
         return str(self.bill_no) + " on " + str(self.billing_date)
+
