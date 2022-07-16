@@ -23,6 +23,7 @@ urlpatterns = [
     path("PopAllItems/",PopAllItems.as_view(),name="pop_all"),
     path("generate_bill/",GenerateBillView.as_view(),name="generate_bill"),
     path("billing/",BillingView.as_view(),name="billing"),
+    path("unsoldproducts/",UnsoldProductsView.as_view(),name="unsoldproducts")
 
 
 ]

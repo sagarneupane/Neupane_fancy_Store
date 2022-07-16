@@ -84,6 +84,15 @@
           </a>
         </li>
 
+         <li class="nav-item">
+          <a class="nav-link text-white {{active_list_soldproducts}} {{bg_list_soldproducts}} " href="{% url 'unsoldproducts' %}">
+            <div class="text-white text-center me-2 d-flex align-items-center justify-content-center">
+              <i class="material-icons opacity-20">file_open</i>
+            </div>
+            <span class="nav-link-text ms-1">View Unsold Products</span>
+          </a>
+        </li>
+
         <li class="nav-item">
           <a class="nav-link text-white {{active}} " href="{% url 'notifications' %}">
             <div class="text-white text-center me-2 d-flex align-items-center justify-content-center">

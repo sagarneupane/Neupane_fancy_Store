@@ -10,7 +10,7 @@ from django.utils.decorators import method_decorator
 from django.contrib.auth.decorators import login_required
 from django import forms
 from django.contrib import messages
-from django.core.paginator import Paginator
+from django.core.paginator import Paginator,PageNotAnInteger,EmptyPage
 import json
 from .helpers import week_day_sales, find_item_n_amount, seven_back_days_generator
 import NFSDATA.helpers as hp
@@ -482,15 +482,13 @@ class SearchForGenerateView(SuccessMessageMixin,FormView):
         context["products"] = self.products
         return context
     
-
-    
 class PopItemsView(SearchForGenerateView):
     
     def dispatch(self, request, *args, **kwargs):
         self.items_searched.pop()
         super().dispatch(request, *args, **kwargs)
         return redirect("create_bill")
-    
+
 
 class PopSelectedItem(SearchForGenerateView):
     
@@ -624,3 +622,46 @@ class BillingView(ListView):
     model = Bills
     template_name = "pages/billing.html"
     context_object_name = "bill_list"
+
+
+class UnsoldProductsView(TemplateView):
+    model = Products
+    template_name = "pages/unsoldproducts.html"
+    paginate_by = 10
+    paginate_orphans = 4
+
+    def dispatch(self, request, *args, **kwargs):
+
+        return super().dispatch(request, *args, **kwargs)
+
+
+    def get_context_data(self,**kwargs):
+        context = super().get_context_data(**kwargs)
+        sold_products = SoldProducts.objects.all()
+        
+        id_lists = set()
+
+        for items in sold_products:
+            id_lists.add(items.product_sold.id)
+
+        # print(id_lists)
+        unsold_products = Products.objects.filter().exclude(id__in=id_lists).order_by("-product_amount")
+        # print(unsold_products)
+
+        paginator = Paginator(unsold_products, self.paginate_by,self.paginate_orphans)
+        page = self.request.GET.get("page")
+
+        try:
+            page_obj = paginator.page(page)
+        except PageNotAnInteger:
+            page_obj = paginator.page(1)
+        except EmptyPage:
+            page_obj = paginator.page(paginator.num_pages)
+
+        # page_number = self.kwargs['page']
+        # page_obj = paginator.get_page(page_number)
+        # context["page_obj"] = page_obj
+
+        context["page_obj"] = page_obj
+
+        return context
